@@ -314,7 +314,6 @@ class GraspingEnv:
                           contactDamping=100)
 
         # add robots
-        self.striker_robot = RobotArm()
         self.goalie_robot = RobotArm()
 
         # move goalie over a bit and rotate PI radians
@@ -391,7 +390,7 @@ class GraspingEnv:
             end = (*self.workspace[corner_ids[i+1],[0,1]], 0.)
             pb.addUserDebugLine(start, end, (0,0,0), 3)
 
-    def perform_grasp(self, x, y, theta, striker: bool = False) -> bool:
+    def perform_grasp(self, x, y, theta) -> bool:
         '''Perform top down grasp in the workspace.  All grasps will occur
         at a height of the center of mass of the object (i.e. object_width/2)
 
@@ -403,8 +402,6 @@ class GraspingEnv:
             y position of the grasp in world frame
         theta
             target rotation about z-axis of gripper during grasp
-        striker
-            true if striker should grasp, otherwise goalie will grasp
 
         Returns
         -------
@@ -412,7 +409,7 @@ class GraspingEnv:
             True if object was successfully grasped, False otherwise. It is up
             to you to decide how to determine success
         '''
-        robot = self.striker_robot if striker else self.goalie_robot
+        robot = self.goalie_robot
         robot.move_arm_to_jpos(robot.home_arm_jpos)
         robot.set_gripper_state(robot.GRIPPER_OPENED)
     
@@ -443,7 +440,6 @@ def test_env():
     while 1:
         env.take_picture()
         env.perform_grasp(0.02, 0.0, 0.0)
-        env.perform_grasp(0.98, 0.0, 0.0, striker=True)
 
 
 if __name__ == "__main__":
