@@ -314,24 +314,15 @@ class GraspingEnv:
                           contactDamping=100)
 
         # add robots
-        self.goalie_robot = RobotArm()
-
-        # move goalie over a bit and rotate PI radians
-        pb.resetBasePositionAndOrientation(
-            bodyUniqueId=self.striker_robot._id,
-            posObj=[1.0, 0.0, 0.05],
-            ornObj=pb.getQuaternionFromEuler([0, 0, np.pi])
-        )
+        self.robot = RobotArm()
 
         # add the ball
         self.ball_id = self.create_ball(
             radius=0.025, 
-            start_pos=[0.5, 0.0, 0.05], 
+            start_pos=[0.1, 0.5, 0.05], 
             start_orn_euler=[0.0, 0.0, 0.0]
         )
 
-        self.workspace = np.array(((0.10, -0.12), # ((min_x, min_y)
-                                   (0.10, 0.12))) #  (max_x, max_y))
 
         self.grasp_height = 0.1
 
@@ -339,7 +330,7 @@ class GraspingEnv:
             self.draw_workspace()
 
         # add camera
-        self.camera = Camera(self.workspace)
+        self.camera = Camera()
 
 
     @staticmethod
@@ -409,15 +400,14 @@ class GraspingEnv:
             True if object was successfully grasped, False otherwise. It is up
             to you to decide how to determine success
         '''
-        robot = self.goalie_robot
-        robot.move_arm_to_jpos(robot.home_arm_jpos)
-        robot.set_gripper_state(robot.GRIPPER_OPENED)
+        self.robot.move_arm_to_jpos(self.robot.home_arm_jpos)
+        self.robot.set_gripper_state(self.robot.GRIPPER_OPENED)
     
         pos = np.array((x, y, self.grasp_height))
-        robot.move_gripper_to(pos, theta)
-        robot.set_gripper_state(robot.GRIPPER_CLOSED)
+        self.robot.move_gripper_to(pos, theta)
+        self.robot.set_gripper_state(self.robot.GRIPPER_CLOSED)
 
-        robot.move_arm_to_jpos(robot.home_arm_jpos)
+        self.robot.move_arm_to_jpos(self.robot.home_arm_jpos)
 
         # TODO figure out how to check for success
         return True

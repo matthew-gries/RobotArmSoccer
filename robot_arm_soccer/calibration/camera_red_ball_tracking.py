@@ -6,10 +6,14 @@ import cv2
 import numpy as np
 
 def show_webcam():
-    cam = cv2.VideoCapture(1)
+    cam = cv2.VideoCapture(0)
 
     while True:
         ret_val, img = cam.read()
+
+        if not ret_val:
+            continue
+
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         result = img_hsv.copy()
 

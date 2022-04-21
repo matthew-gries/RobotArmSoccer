@@ -1,7 +1,9 @@
-import numpy as np
+from nuro_arm.robot.robot_arm import RobotArm
 import cv2
-from typing import Tuple
+import numpy as np
 import pathlib
+
+from typing import Tuple
 
 # folder this file is in
 FILE_DIRECTORY = pathlib.Path(__file__).parent
@@ -18,8 +20,17 @@ PIXEL_WIDTH = 1440
 # Height of image captured
 PIXEL_HEIGHT = 960
 
+# Distance cut-off, in mm
+DISTANCE_CUTOFF = 200
+
+# Arm joint positions for the "ready" position
+NONBLOCKING_JPOS = [0.0041887902047863905, -1.0974630336540343, 1.3236577047124993, 1.4535102010608776, -0.0041887902047863905]
+
+# Arm joint positions for blocking
+BLOCKING_JPOS = [0.0041887902047863905, -0.3099704751541929, 1.7928022076485752, 1.126784565087539, -0.0041887902047863905]
+
 def load_camera_mtx() -> np.ndarray:
-    mtx = np.load(str(FILE_DIRECTORY / "parameters" / "mtx.npy"))
+    mtx = np.load(str(FILE_DIRECTORY / "calibration" / "parameters" / "mtx.npy"))
     return mtx
 
 def pixels_per_mm(mtx: np.ndarray) -> Tuple[float, float]:
@@ -31,10 +42,16 @@ def pixels_per_mm(mtx: np.ndarray) -> Tuple[float, float]:
 
     return (m_x, m_y)
 
-def show_webcam():
+def main():
+    robot = RobotArm()
+    robot.move_arm_jpos(NONBLOCKING_JPOS)
+    robot.close_gripper()
+
     cam = cv2.VideoCapture(0)
     mtx = load_camera_mtx()
     m_x, m_y = pixels_per_mm(mtx)
+
+    blocking = False
 
     while True:
         ret_val, img = cam.read()
@@ -63,10 +80,13 @@ def show_webcam():
             angle = np.arcsin(x_mm_from_center_line / obj_dist)
 
             print(f"Estimated object distance: {obj_dist} mm")
-            # print(f"Estimated angle from center: {angle} rad")
-            # print(x, y, w, h)
-            # print(x_pixel_from_center_line)
-            # print(x_mm_from_center_line)
+            if obj_dist < DISTANCE_CUTOFF and not blocking:
+                blocking = True
+                robot.move_arm_jpos(BLOCKING_JPOS)
+            
+            if obj_dist > DISTANCE_CUTOFF and blocking:
+                blocking = False
+                robot.move_arm_jpos(NONBLOCKING_JPOS)
 
         cv2.imshow('mask', mask)
         cv2.imshow('result', result)
@@ -75,9 +95,5 @@ def show_webcam():
 
     cv2.destroyAllWindows()
 
-def main():
-    show_webcam()
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
