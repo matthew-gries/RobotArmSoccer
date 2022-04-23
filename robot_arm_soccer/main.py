@@ -31,7 +31,7 @@ CAM_2_GRIPPER_X = 100
 NONBLOCKING_JPOS = [0.0041887902047863905, -1.0974630336540343, 1.3236577047124993, 1.4535102010608776, -0.0041887902047863905]
 
 # Countdown before starting, in seconds
-COUNTDOWN = 3
+COUNTDOWN = 5
 
 # Approximate FPS of webcam
 APPROX_FPS = 60
@@ -63,7 +63,7 @@ def get_gripper_coord(x: float, y: float) -> Tuple[float, float]:
     # IGNORE APPROXIMATING THE Z POSITION, just hardcode for now
     robot_pos_per_pixel = (PIXEL_ROBOT_POS_MAP['max_x'] - PIXEL_ROBOT_POS_MAP['min_x']) / PIXEL_WIDTH
     x_pos_robot = x * robot_pos_per_pixel
-    return (x_pos_robot, 0.025)
+    return (x_pos_robot, 0.25)
 
 def main():
     robot = RobotArm()
@@ -125,7 +125,7 @@ def main():
 
             obj_dist = (BALL_DIAMETER * WEBCAM_FOCAL_LENGTH) / (w / m_x)
 
-            print(f"Time: {t}\tEst. dist: {obj_dist} mm\tCenter: {x + w/2} px")
+            print("Time: {:.2f}\tEst. dist: {:.3f} mm\tCenter: ({:.3f}, {:.3f}) px".format(t, obj_dist, x+w/2, y+h/2))
 
             if frame_index < APPROX_FPS * ESTIMATED_ROLL_TIME:
                 dist_array[0,frame_index] = t
@@ -155,12 +155,12 @@ def main():
 
     # Do least squares method on the pixels to approximate where the center of the ball will end up
     # in terms of pixels
-    x_m, x_b = np.polyfit(x=x_center_array[1,:], y=x_center_array[2,:])
-    y_m, y_b = np.polyfit(x=y_center_array[1,:], y=y_center_array[2,:])
+    x_m, x_b = np.polyfit(x=x_center_array[0,:], y=x_center_array[1,:], deg=1)
+    y_m, y_b = np.polyfit(x=y_center_array[0,:], y=y_center_array[1,:], deg=1)
 
     # Do least squares method on distance and time, approximates distance of ball (mm) from camera lens at
     # a given time
-    dist_m, dist_b = np.polyfit(x=dist_array[1,:], y=dist_array[2,:])
+    dist_m, dist_b = np.polyfit(x=dist_array[0,:], y=dist_array[1,:], deg=1)
 
     # Get time step ball will be in front of gripper
     t_gripper = (CAM_2_GRIPPER_X - dist_b) / dist_m
@@ -172,7 +172,10 @@ def main():
     # Get the x and z coordinates the robot should move its gripper to
     x_gripper, z_gripper = get_gripper_coord(x_center_at_t_gripper, y_center_at_t_gripper)
 
-    # robot.move_hand_to([x_gripper, 0, z_gripper])
+    success = robot.move_hand_to([x_gripper, 0, z_gripper])
+
+    if not success:
+        print("WARNING")
 
     print(f"LEAST SQUARES APPROX. DIST:\tdist = {dist_m}t + {dist_b}")
     print(f"LEAST SQUARES APPROX. X CENTER:\tx_center = {x_m}t + {x_b}")
