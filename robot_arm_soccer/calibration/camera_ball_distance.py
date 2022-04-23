@@ -32,7 +32,7 @@ def pixels_per_mm(mtx: np.ndarray) -> Tuple[float, float]:
     return (m_x, m_y)
 
 def show_webcam():
-    cam = cv2.VideoCapture(0)
+    cam = cv2.VideoCapture(1)
     mtx = load_camera_mtx()
     m_x, m_y = pixels_per_mm(mtx)
 
@@ -45,8 +45,10 @@ def show_webcam():
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         result = img_hsv.copy()
 
-        mask1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([8, 255, 255]))
-        mask2 = cv2.inRange(img_hsv, np.array([172, 100, 100]), np.array([180, 255, 255]))
+        # mask1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([8, 255, 255]))
+        # mask2 = cv2.inRange(img_hsv, np.array([172, 100, 100]), np.array([180, 255, 255]))
+        mask1 = cv2.inRange(img_hsv, (0,50,20), (5,255,255))
+        mask2 = cv2.inRange(img_hsv, (175,50,20), (180,255,255))
         mask = np.bitwise_or(mask1, mask2)
         result = cv2.bitwise_and(result, result, mask=mask)
 
