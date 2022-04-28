@@ -1,8 +1,20 @@
 from typing import Tuple, List, Optional, Dict
 import time
 import numpy as np
+from pathlib import Path
 import pybullet as pb
 import pybullet_data
+
+ROBOT_BASE_POSITION = (0, 0, 0)
+BALL_START_POSITION = (0.25, 0.5, 0.05)
+CAMERA_TARGET_POSITION = BALL_START_POSITION
+CAMERA_DISTANCE = 0.8
+BALL_MASS = 1
+ALPHA = 300
+
+PARAMETERS_DIR = Path(__file__).parent / "calibration" / "parameters"
+CAMERA_MATRIX_PATH = str(PARAMETERS_DIR / "mtx.npy")
+DISTORTION_MATRIX_PATH = str(PARAMETERS_DIR / "dist.npy")
 
 class RobotArm:
     GRIPPER_CLOSED = 0.
@@ -13,7 +25,7 @@ class RobotArm:
         '''
         # placing robot higher above ground improves top-down grasping ability
         self._id = pb.loadURDF("assets/urdf/xarm.urdf",
-                               basePosition=(0, 0, 0.05),
+                               basePosition=ROBOT_BASE_POSITION,
                                flags=pb.URDF_USE_SELF_COLLISION)
 
         # these are hard coded based on how urdf is written
@@ -25,8 +37,6 @@ class RobotArm:
 
         self.arm_joint_limits = np.array(((-2, -1.58, -2, -1.8, -2),
                                           ( 2,  1.58,  2,  2.0,  2)))
-        # self.gripper_joint_limits = np.array(((0.05,0.05),
-        #                                       (1.38, 1.38)))
         # Don't open the gripper as much
         self.gripper_joint_limits = np.array(((0.075,0.075),
                                               (0.25, 0.25)))
@@ -230,42 +240,37 @@ class RobotArm:
 
 
 class Camera:
-    def __init__(self, workspace: np.ndarray) -> None:
+    def __init__(self) -> None:
         '''Camera that is mounted to view workspace from above
-
-        Hint
-        ----
-        For this camera setup, it may be easiest if you use the functions
-        `pybullet.computeViewMatrix` and `pybullet.computeProjectionMatrixFOV`.
-        cameraUpVector should be (0,1,0)
-
-        Parameters
-        ----------
-        workspace
-            2d array describing extents of robot workspace that is to be viewed,
-            in the format: ((min_x,min_y), (max_x, max_y))
-
-        Attributes
-        ----------
-        img_width : int
-            width of rendered image
-        img_height : int
-            height of rendered image
-        view_mtx : List[float]
-            view matrix that is positioned to view center of workspace from above
-        proj_mtx : List[float]
-            proj matrix that set up to fully view workspace
         '''
-        self.img_width = 100
-        self.img_height = 100
+        self.img_width = 1440
+        self.img_height = 960
 
-        cx, cy = np.mean(workspace, axis=0)
-        eye_pos = (cx, cy, 0.25)
-        target_pos = (cx, cy, 0)
-        self.view_mtx = pb.computeViewMatrix(cameraEyePosition=eye_pos,
-                                             cameraTargetPosition=target_pos,
-                                            cameraUpVector=(0,1,0))
-        self.proj_mtx = pb.computeProjectionMatrixFOV(fov=25,
+        self.view_mtx = pb.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=CAMERA_TARGET_POSITION,
+            distance=CAMERA_DISTANCE,
+            roll=0,
+            pitch=0,
+            yaw=0,
+            upAxisIndex=2
+        )
+
+    
+        camera_vis_id = pb.createVisualShape(pb.GEOM_BOX,
+                                         halfExtents=[0.02, 0.05, 0.02],
+                                         rgbaColor=[0,0,0,0.1])
+        camera_body = pb.createMultiBody(0, -1, camera_vis_id)
+
+        view_mtx = np.array(self.view_mtx).reshape((4,4),order='F')
+        cam_pos = np.dot(view_mtx[:3,:3].T, -view_mtx[:3,3])
+        cam_euler = np.array([0, 0, 0])
+        cam_quat = pb.getQuaternionFromEuler(cam_euler)
+        pb.resetBasePositionAndOrientation(camera_body, cam_pos, cam_quat)
+
+        self.camera_mtx = np.load(CAMERA_MATRIX_PATH)
+        self.dist_mtx = np.load(DISTORTION_MATRIX_PATH)
+        cam_fov = np.degrees(2 * np.arctan2(self.img_height, 2 * self.camera_mtx[1, 1]))
+        self.proj_mtx = pb.computeProjectionMatrixFOV(fov=cam_fov,
                                                       aspect=1,
                                                       nearVal=0.01,
                                                       farVal=1)
@@ -317,17 +322,11 @@ class GraspingEnv:
         self.robot = RobotArm()
 
         # add the ball
-        self.ball_id = self.create_ball(
+        self.ball_id, self.ball_coll_id, self.ball_vis_id = self.create_ball(
             radius=0.025, 
-            start_pos=[0.1, 0.5, 0.05], 
+            start_pos=BALL_START_POSITION, 
             start_orn_euler=[0.0, 0.0, 0.0]
         )
-
-
-        self.grasp_height = 0.1
-
-        if render:
-            self.draw_workspace()
 
         # add camera
         self.camera = Camera()
@@ -354,7 +353,7 @@ class GraspingEnv:
             rgbaColor=[1.0, 0.0, 0.0, 1.0]
         )
 
-        object_id = pb.createMultiBody(0, coll_id, vis_id, basePosition=start_pos, baseOrientation=pb.getQuaternionFromEuler(start_orn_euler))
+        object_id = pb.createMultiBody(BALL_MASS, coll_id, vis_id, basePosition=start_pos, baseOrientation=pb.getQuaternionFromEuler(start_orn_euler))
 
         pb.changeDynamics(
             object_id, 
@@ -366,51 +365,6 @@ class GraspingEnv:
 
         return (object_id, coll_id, vis_id)
 
-    def draw_workspace(self) -> None:
-        '''This is just for visualization purposes, to help you with the object
-        resetting.  Must be in GUI mode, otherwise error occurs
-
-        Note
-        ----
-        Pybullet debug lines only show up in GUI mode so they won't help you
-        with camera placement.
-        '''
-        corner_ids = ((0,0), (0,1), (1,1), (1,0), (0,0))
-        for i in range(4):
-            start = (*self.workspace[corner_ids[i],[0,1]], 0.)
-            end = (*self.workspace[corner_ids[i+1],[0,1]], 0.)
-            pb.addUserDebugLine(start, end, (0,0,0), 3)
-
-    def perform_grasp(self, x, y, theta) -> bool:
-        '''Perform top down grasp in the workspace.  All grasps will occur
-        at a height of the center of mass of the object (i.e. object_width/2)
-
-        Parameters
-        ----------
-        x
-            x position of the grasp in world frame
-        y
-            y position of the grasp in world frame
-        theta
-            target rotation about z-axis of gripper during grasp
-
-        Returns
-        -------
-        bool
-            True if object was successfully grasped, False otherwise. It is up
-            to you to decide how to determine success
-        '''
-        self.robot.move_arm_to_jpos(self.robot.home_arm_jpos)
-        self.robot.set_gripper_state(self.robot.GRIPPER_OPENED)
-    
-        pos = np.array((x, y, self.grasp_height))
-        self.robot.move_gripper_to(pos, theta)
-        self.robot.set_gripper_state(self.robot.GRIPPER_CLOSED)
-
-        self.robot.move_arm_to_jpos(self.robot.home_arm_jpos)
-
-        # TODO figure out how to check for success
-        return True
 
     def take_picture(self) -> np.ndarray:
         '''Takes picture using camera
@@ -428,8 +382,15 @@ def test_env():
     env = GraspingEnv(True)
 
     while 1:
+        pb.stepSimulation()
         env.take_picture()
-        env.perform_grasp(0.02, 0.0, 0.0)
+        vel, _ = pb.getBaseVelocity(env.ball_id)
+        pb.resetBaseVelocity(
+            objectUniqueId=env.ball_id,
+            linearVelocity=[0.0, -0.1, vel[2]]
+        )
+
+        
 
 
 if __name__ == "__main__":
