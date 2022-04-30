@@ -10,7 +10,8 @@ FILE_DIRECTORY = pathlib.Path(__file__).parent
 WEBCAM_FOCAL_LENGTH = 3.6
 
 # Diameter of ball = 63.5 mm
-BALL_DIAMETER = 63.5
+# BALL_DIAMETER = 63.5
+BALL_DIAMETER = 38.09
 
 # Width of image captured
 PIXEL_WIDTH = 1440
@@ -47,8 +48,8 @@ def show_webcam():
 
         # mask1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([8, 255, 255]))
         # mask2 = cv2.inRange(img_hsv, np.array([172, 100, 100]), np.array([180, 255, 255]))
-        mask1 = cv2.inRange(img_hsv, (0,50,20), (5,255,255))
-        mask2 = cv2.inRange(img_hsv, (175,50,20), (180,255,255))
+        mask1 = cv2.inRange(img_hsv, (0,50,20), (10,255,255))
+        mask2 = cv2.inRange(img_hsv, (170,50,20), (180,255,255))
         mask = np.bitwise_or(mask1, mask2)
         result = cv2.bitwise_and(result, result, mask=mask)
 

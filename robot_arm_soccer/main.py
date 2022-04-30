@@ -14,6 +14,7 @@ WEBCAM_FOCAL_LENGTH = 3.6
 
 # Diameter of ball = 63.5 mm
 BALL_DIAMETER = 63.5
+# BALL_DIAMETER = 38.09
 
 # Width of image captured
 PIXEL_WIDTH = 1440
@@ -22,13 +23,13 @@ PIXEL_WIDTH = 1440
 PIXEL_HEIGHT = 960
 
 # Distance cut-off, in mm from camera lens
-DISTANCE_CUTOFF = 300
+DISTANCE_CUTOFF = 500
 
 # Distance of the camera lens to the x-position aligned with the gripper, in mm from camera lens
 CAM_2_GRIPPER_X = 100
 
 # Arm joint positions for the "ready" position
-NONBLOCKING_JPOS = [0.0041887902047863905, -1.0974630336540343, 1.3236577047124993, 1.4535102010608776, -0.0041887902047863905]
+NONBLOCKING_JPOS = [0.0041887902047863905, -0.4775220833456485, 1.5917402778188283, 1.2692034320502763, -0.0041887902047863905]
 
 # Countdown before starting, in seconds
 COUNTDOWN = 5
@@ -39,16 +40,19 @@ APPROX_FPS = 60
 # Hyperparameter to estimate the amount of time the roll will be (better to over-estimate than under-estimate), in seconds
 ESTIMATED_ROLL_TIME = 20
 
-# These parameters maps the corner of the images to x,z positions on for the robot to move to, these need to be configured manually
-# TODO figure out how to do y-values of image
-PIXEL_ROBOT_POS_MAP = {
-    'max_x': 0.29386,
-    'min_x': 0.08038
-}
+# The distance, in mm, of the goal line in the FOV of the camera
+GOAL_LINE_IN_FOV = 130
+
+# The distance, in mm, from the robot base to where the camera FOV begins on the side of the robot
+CAM_2_FOV_DISPLACEMENT = 76.2 # FOV starts from the edge of the robot base
 
 def load_camera_mtx() -> np.ndarray:
     mtx = np.load(str(FILE_DIRECTORY / "calibration" / "parameters" / "mtx.npy"))
     return mtx
+
+def load_dist_mtx() -> np.ndarray:
+    dist = np.load(str(FILE_DIRECTORY / "calibration" / "parameters" / "dist.npy"))
+    return dist
 
 def pixels_per_mm(mtx: np.ndarray) -> Tuple[float, float]:
     f_x = mtx[0][0]
@@ -61,9 +65,21 @@ def pixels_per_mm(mtx: np.ndarray) -> Tuple[float, float]:
 
 def get_gripper_coord(x: float, y: float) -> Tuple[float, float]:
     # IGNORE APPROXIMATING THE Z POSITION, just hardcode for now
-    robot_pos_per_pixel = (PIXEL_ROBOT_POS_MAP['max_x'] - PIXEL_ROBOT_POS_MAP['min_x']) / PIXEL_WIDTH
-    x_pos_robot = x * robot_pos_per_pixel
-    return (x_pos_robot, 0.25)
+    # robot_pos_per_pixel = (PIXEL_ROBOT_POS_MAP['max_x'] - PIXEL_ROBOT_POS_MAP['min_x']) / PIXEL_WIDTH
+    # x_pos_robot = x * robot_pos_per_pixel
+    # return (x_pos_robot, 0.25)
+
+    avg_mm_per_px = GOAL_LINE_IN_FOV / PIXEL_WIDTH
+    print(avg_mm_per_px)
+    x_center_in_mm = x * avg_mm_per_px
+    print(x_center_in_mm)
+    x_center_from_robot_base = x_center_in_mm + CAM_2_FOV_DISPLACEMENT
+    print(x_center_from_robot_base)
+    # 0.1 in robot coordinates is approx 25.4 mm
+    robot_x_coord = (x_center_from_robot_base / 25.4) * 0.1 * 0.25
+    return (robot_x_coord, 0.025)
+
+
 
 def main():
     robot = RobotArm()
@@ -72,6 +88,7 @@ def main():
 
     cam = cv2.VideoCapture(1)
     mtx = load_camera_mtx()
+    dist = load_dist_mtx()
     m_x, m_y = pixels_per_mm(mtx)
 
     # Pre-allocate a numpy array to keep track of the distance (in mm) of the ball from the camera at each time
@@ -98,13 +115,20 @@ def main():
 
     print("Go!")
 
+    start = time.time()
     while True:
         ret_val, img = cam.read()
         # get time stamp of this frame
-        t = time.time()
+        t = time.time() - start
 
         if not ret_val:
             continue
+
+        new_cam_mtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (PIXEL_WIDTH, PIXEL_HEIGHT), 1, (PIXEL_WIDTH, PIXEL_HEIGHT))
+        undistored = cv2.undistort(img, mtx, dist, None, new_cam_mtx)
+        # crop the image
+        x, y, w, h = roi
+        img = undistored[y:y+h, x:x+w]
 
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         result = img_hsv.copy()
@@ -113,6 +137,8 @@ def main():
         # mask2 = cv2.inRange(img_hsv, np.array([172, 100, 100]), np.array([180, 255, 255]))
         mask1 = cv2.inRange(img_hsv, (0,50,20), (5,255,255))
         mask2 = cv2.inRange(img_hsv, (175,50,20), (180,255,255))
+        # mask1 = cv2.inRange(img_hsv, (0,50,20), (10,255,255))
+        # mask2 = cv2.inRange(img_hsv, (170,50,20), (180,255,255))
         mask = np.bitwise_or(mask1, mask2)
         result = cv2.bitwise_and(result, result, mask=mask)
 
@@ -165,9 +191,13 @@ def main():
     # Get time step ball will be in front of gripper
     t_gripper = (CAM_2_GRIPPER_X - dist_b) / dist_m
 
+    print(f"GRIPPER TIME: {t_gripper}")
+
     # Get the approximate image xy-position of the center of the ball when in front of the gripper, in pixels
     x_center_at_t_gripper = (x_m * t_gripper) + x_b
     y_center_at_t_gripper = (y_m * t_gripper) + y_b
+
+    print(f"X CENTER AT T GRIPPER: {x_center_at_t_gripper}")
 
     # Get the x and z coordinates the robot should move its gripper to
     x_gripper, z_gripper = get_gripper_coord(x_center_at_t_gripper, y_center_at_t_gripper)
@@ -175,7 +205,7 @@ def main():
     success = robot.move_hand_to([x_gripper, 0, z_gripper])
 
     if not success:
-        print("WARNING")
+        print("WARNING: Robot did not report a successful move")
 
     print(f"LEAST SQUARES APPROX. DIST:\tdist = {dist_m}t + {dist_b}")
     print(f"LEAST SQUARES APPROX. X CENTER:\tx_center = {x_m}t + {x_b}")

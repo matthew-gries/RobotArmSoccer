@@ -1,3 +1,4 @@
+from concurrent.futures import thread
 from typing import Tuple, List, Optional, Dict
 import time
 import numpy as np
@@ -381,17 +382,29 @@ def test_env():
     '''
     env = GraspingEnv(True)
 
+    pb.resetBaseVelocity(
+        objectUniqueId=env.ball_id,
+        linearVelocity=[0.0, -0.5, 0.0]
+    )
+    pb.changeDynamics(
+        env.ball_id,
+        -1,
+        lateralFriction=0.01,
+        spinningFriction=0.005,
+        rollingFriction=0.005
+    )
+
+    import time
+    counter = 0
+
     while 1:
         pb.stepSimulation()
-        env.take_picture()
-        vel, _ = pb.getBaseVelocity(env.ball_id)
-        pb.resetBaseVelocity(
-            objectUniqueId=env.ball_id,
-            linearVelocity=[0.0, -0.1, vel[2]]
-        )
+        time.sleep(1./256)
 
-        
+        if counter % 256 == 0:
+            env.take_picture()
 
+        counter += 1
 
 if __name__ == "__main__":
     test_env()
